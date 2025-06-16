@@ -5,27 +5,36 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const os = require('os');
 
+// Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
 const createWindow = () => {
+  // Create the browser window.
   const mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'), // Use the actual preload.js path
-      contextIsolation: true,
-      nodeIntegration: false,
+      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
     },
   });
 
+  // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+
+  // Open the DevTools.
   mainWindow.webContents.openDevTools();
 };
 
+// This method will be called when Electron has finished
+// initialization and is ready to create browser windows.
+// Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   createWindow();
+
+  // On OS X it's common to re-create a window in the app when the
+  // dock icon is clicked and there are no other windows open.
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -33,6 +42,9 @@ app.whenReady().then(() => {
   });
 });
 
+// Quit when all windows are closed, except on macOS. There, it's common
+// for applications and their menu bar to stay active until the user quits
+// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
@@ -56,17 +68,14 @@ ipcMain.handle('login', async (event, username, password) => {
 
 // CHECK-IN (add new stock)
 ipcMain.handle('check-in', async (event, item) => {
-  console.log('Check-in called with:', item);
+  // item: { barcode, category, subcategory, quantity, priceBuy, priceSell, discount }
   return new Promise((resolve) => {
     if (!item.barcode || !item.category || !item.subcategory || !item.quantity || !item.priceBuy || !item.priceSell) {
-      console.log('Check-in missing fields:', item);
       return resolve({ success: false, error: 'Missing required fields' });
     }
+    // Ensure category exists or create
     db.get('SELECT id FROM categories WHERE name = ?', [item.category], (err, catRow) => {
-      if (err) {
-        console.log('Category lookup error:', err);
-        return resolve({ success: false, error: 'DB error (category)' });
-      }
+      if (err) return resolve({ success: false, error: 'DB error (category)' });
       const insertCategory = (cb) => {
         db.run('INSERT INTO categories (name) VALUES (?)', [item.category], function (err) {
           if (err) return resolve({ success: false, error: 'DB error (insert category)' });
@@ -75,6 +84,7 @@ ipcMain.handle('check-in', async (event, item) => {
       };
       const categoryId = catRow ? catRow.id : null;
       const withCategory = (catId) => {
+        // Ensure subcategory exists or create
         db.get('SELECT id FROM subcategories WHERE name = ? AND category_id = ?', [item.subcategory, catId], (err, subRow) => {
           if (err) return resolve({ success: false, error: 'DB error (subcategory)' });
           const insertSubcategory = (cb) => {
@@ -85,17 +95,14 @@ ipcMain.handle('check-in', async (event, item) => {
           };
           const subcategoryId = subRow ? subRow.id : null;
           const withSubcategory = (subId) => {
+            // Insert items (quantity times, each with unique barcode)
             const now = new Date().toISOString();
             let inserted = 0, failed = 0;
             for (let i = 0; i < item.quantity; i++) {
               db.run('INSERT INTO items (subcategory_id, barcode, checked_in_at, price_buy, price_sell, discount, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [subId, item.barcode + (item.quantity > 1 ? '-' + (i+1) : ''), now, item.priceBuy, item.priceSell, item.discount || 0, 'in_stock'],
                 function (err) {
-                  if (err) {
-                    console.log('Insert error:', err);
-                  } else {
-                    console.log('Inserted item with barcode:', item.barcode);
-                  }
+                  if (err) failed++; else inserted++;
                   if (inserted + failed === item.quantity) {
                     if (inserted > 0) resolve({ success: true, inserted, failed });
                     else resolve({ success: false, error: 'All insertions failed' });
@@ -122,6 +129,7 @@ ipcMain.handle('get-all-items', async () => {
       LEFT JOIN categories c ON s.category_id = c.id
       WHERE items.status = 'in_stock'`, [], (err, rows) => {
       if (err) return resolve({ success: false, error: 'DB error' });
+      // Map DB fields to camelCase for frontend
       const items = rows.map(row => ({
         id: row.id,
         barcode: row.barcode,
@@ -156,7 +164,9 @@ ipcMain.handle('getInventory', async () => {
 // ADD INVENTORY ITEMS (for barcode batch check-in)
 ipcMain.handle('addInventoryItems', async (event, { category, subcategory, buyingPrice, sellingPrice, discount, image, barcodes }) => {
   try {
+    // Ensure category and subcategory exist
     let catId, subId;
+    // Category
     let catRow = await new Promise((resolve) => {
       db.get('SELECT id FROM categories WHERE name = ?', [category], (err, row) => resolve(row));
     });
@@ -170,6 +180,7 @@ ipcMain.handle('addInventoryItems', async (event, { category, subcategory, buyin
     } else {
       catId = catRow.id;
     }
+    // Subcategory
     let subRow = await new Promise((resolve) => {
       db.get('SELECT id FROM subcategories WHERE name = ? AND category_id = ?', [subcategory, catId], (err, row) => resolve(row));
     });
@@ -183,6 +194,7 @@ ipcMain.handle('addInventoryItems', async (event, { category, subcategory, buyin
     } else {
       subId = subRow.id;
     }
+    // Insert items
     for (const code of barcodes) {
       await db.runAsync(
         `INSERT INTO items (subcategory_id, barcode, buying_price, selling_price, discount, image_path, status)
@@ -225,10 +237,12 @@ ipcMain.handle('get-item-by-barcode', async (event, barcode) => {
 // CHECKOUT SALE
 ipcMain.handle('checkout-sale', async (event, sale) => {
   return new Promise((resolve) => {
+    // Mark items as sold
     const placeholders = sale.items.map(() => '?').join(',');
     const barcodes = sale.items.map(i => i.barcode);
     db.run(`UPDATE items SET status = 'sold' WHERE barcode IN (${placeholders})`, barcodes, function (err) {
       if (err) return resolve({ success: false, error: 'Failed to update items' });
+      // Record sale
       db.run(`INSERT INTO sales (user_id, shift, items, payment_method, created_at, category_id, subcategory_id, special, failed_barcodes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [sale.userId, sale.shift, JSON.stringify(sale.items), sale.paymentMethod, sale.createdAt, sale.categoryId, sale.subcategoryId, 0, JSON.stringify([])],
@@ -353,3 +367,5 @@ ipcMain.handle('save-item-image', async (event, filename, dataUrl) => {
     }
   });
 });
+
+//console.log('DB PATH (main.js):', dbPath);
