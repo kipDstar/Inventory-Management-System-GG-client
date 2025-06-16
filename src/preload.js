@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld('api', {
   generateSalesReportPDF: (sales, password) => ipcRenderer.invoke('generate-sales-report-pdf', { sales, password }),
   emailSalesReport: (sales, email, password) => ipcRenderer.invoke('email-sales-report', { sales, email, password }),
   saveItemImage: (filename, dataUrl) => ipcRenderer.invoke('save-item-image', filename, dataUrl),
+  getInventory: () => ipcRenderer.invoke('getInventory'),
+  addInventoryItems: (data) => ipcRenderer.invoke('addInventoryItems', data),
 });

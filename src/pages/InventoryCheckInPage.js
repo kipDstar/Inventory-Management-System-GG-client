@@ -18,6 +18,7 @@ export default function InventoryCheckInPage({ onSubmit }) {
   const [sellingPrice, setSellingPrice] = useState('');
   const [discount, setDiscount] = useState('');
   const [image, setImage] = useState(null);
+  const [barcode, setBarcode] = useState('');
 
   const handleImageChange = e => {
     setImage(e.target.files[0]);
@@ -25,13 +26,17 @@ export default function InventoryCheckInPage({ onSubmit }) {
 
   const handleSubmit = e => {
     e.preventDefault();
-    if (!category || !subcategory || !quantity || !buyingPrice || !sellingPrice) return;
+    if (!category || !subcategory || !quantity || !buyingPrice || !sellingPrice) {
+      alert('Please fill in all required fields.');
+      return;
+    }
     onSubmit({
+      barcode,
       category,
       subcategory,
       quantity,
-      buyingPrice,
-      sellingPrice,
+      priceBuy: buyingPrice,
+      priceSell: sellingPrice,
       discount,
       image,
     });

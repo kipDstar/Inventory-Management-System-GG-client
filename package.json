@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
-    "chart.js": "^4.4.9",
+    "chart.js": "^4.5.0",
     "electron-squirrel-startup": "^1.0.1",
     "jsbarcode": "^3.12.1",
     "jspdf": "^3.0.1",

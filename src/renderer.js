@@ -74,6 +74,7 @@ const App = () => {
   const [user, setUser] = useState(null);
   const [error, setError] = useState('');
   const [page, setPage] = useState('inventory');
+  const [items, setItems] = useState([]);
 
   const handleLogin = async (username, password) => {
     setError('');
@@ -90,6 +91,43 @@ const App = () => {
     }
   };
 
+  React.useEffect(() => {
+    const fetchData = async () => {
+      if (user) {
+        try {
+          const result = await window.api.getInventory();
+          if (result.success) {
+            setItems(Array.isArray(result.items) ? result.items : []);
+          } else {
+            setItems([]);
+          }
+        } catch (error) {
+          console.error('Error fetching data:', error);
+          setItems([]);
+        }
+      }
+    };
+
+    fetchData();
+  }, [user]);
+
+  const handleCheckIn = async (item) => {
+    console.log('Sending to check-in:', item);
+    try {
+      const result = await window.api.checkIn(item); // Use checkIn, not invoke
+      console.log('Check-in result:', result);
+      if (result.success) {
+        // Optionally, fetch all items again to refresh the list
+        const updated = await window.api.getInventory();
+        setItems(Array.isArray(updated.items) ? updated.items : []);
+      } else {
+        console.error('Check-in failed:', result.error);
+      }
+    } catch (error) {
+      console.error('Error during check-in:', error);
+    }
+  };
+
   if (!user) {
     return <div className="main-content"><LoginPage onLogin={handleLogin} error={error} /></div>;
   }
@@ -98,7 +136,7 @@ const App = () => {
     <div className="app-container">
       <Sidebar user={user} page={page} setPage={setPage} />
       <main className="main-content">
-        {page === 'inventory' && <InventoryPage user={user} />}
+        {page === 'inventory' && <InventoryPage user={user} items={items} onCheckIn={handleCheckIn} />}
         {page === 'sales' && <SalesPage user={user} />}
         {page === 'reports' && user.role === 'admin' && <ReportsPage user={user} />}
         {page === 'dashboard' && user.role === 'admin' && <AdminDashboard user={user} />}
