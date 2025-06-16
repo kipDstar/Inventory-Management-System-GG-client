@@ -1,0 +1,61 @@
+.checkin-glass-card {
+  background: rgba(255,255,255,0.15);
+  box-shadow: 0 8px 32px 0 rgba(31,38,135,0.37);
+  backdrop-filter: blur(8px);
+  border-radius: 20px;
+  padding: 2rem 2.5rem;
+  margin: 2rem auto;
+  max-width: 420px;
+  color: #222;
+  animation: fadeInUp 0.7s cubic-bezier(.23,1.01,.32,1) both;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(40px);}
+  to { opacity: 1; transform: translateY(0);}
+}
+.checkin-form label {
+  display: block;
+  margin-bottom: 1.2rem;
+  font-weight: 500;
+}
+.checkin-form input, .checkin-form select {
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  margin-top: 0.3rem;
+  font-size: 1rem;
+  background: rgba(255,255,255,0.7);
+  transition: border 0.2s;
+}
+.checkin-form input:focus, .checkin-form select:focus {
+  border: 1.5px solid #6c63ff;
+  outline: none;
+}
+.animated-btn {
+  background: linear-gradient(90deg, #6c63ff 0%, #48c6ef 100%);
+  color: #fff;
+  border: none;
+  padding: 0.7rem 1.5rem;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(76, 110, 245, 0.15);
+  transition: background 0.3s, transform 0.2s;
+}
+.animated-btn:hover {
+  background: linear-gradient(90deg, #48c6ef 0%, #6c63ff 100%);
+  transform: translateY(-2px) scale(1.04);
+}
+.barcode-gen-card {
+  background: rgba(255,255,255,0.18);
+  box-shadow: 0 8px 32px 0 rgba(31,38,135,0.25);
+  backdrop-filter: blur(8px);
+  border-radius: 20px;
+  padding: 2rem 2.5rem;
+  margin: 2rem auto;
+  max-width: 700px;
+  color: #222;
+  animation: fadeInUp 0.7s cubic-bezier(.23,1.01,.32,1) both;
+}

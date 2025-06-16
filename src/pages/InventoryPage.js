@@ -3,6 +3,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import BarcodeInput, { CATEGORY_OPTIONS } from '../components/BarcodeInput';
+import InventoryCheckInPage from './InventoryCheckInPage';
 
 function InventoryTable({ items }) {
   // Group by category/subcategory
@@ -63,63 +64,36 @@ function InventoryTable({ items }) {
 }
 
 function InventoryPage({ user }) {
-  const [barcode, setBarcode] = useState('');
-  const [message, setMessage] = useState('');
-  const [category, setCategory] = useState('');
-  const [subcategory, setSubcategory] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [priceBuy, setPriceBuy] = useState('');
-  const [priceSell, setPriceSell] = useState('');
-  const [discount, setDiscount] = useState('');
+  const [step, setStep] = useState('checkin'); // 'checkin' | 'barcode' | 'scan' | 'list'
+  const [checkInData, setCheckInData] = useState(null);
+  const [barcodes, setBarcodes] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [imageFile, setImageFile] = useState(null);
-  const fileInputRef = useRef();
 
   const isAdmin = user.role === 'admin';
 
-  const handleBarcodeScan = (code) => {
-    setBarcode(code);
-  };
+  // Step 1: Check-in form submission
+  const handleCheckInSubmit = async (data) => {
+    setCheckInData(data);
+    setStep('barcode');
 
-  const handleImageChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setImageFile(e.target.files[0]);
-    }
-  };
-
-  const handleCheckIn = async (e) => {
-    e.preventDefault();
-    setMessage('');
-    let imageName = '';
-    if (imageFile) {
-      // Save image to assets folder (renderer process: use IPC or fallback to base64 for demo)
-      const ext = imageFile.name.split('.').pop();
-      imageName = `${barcode}_${Date.now()}.${ext}`;
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        // Send to main process to save
-        await window.api.saveItemImage(imageName, ev.target.result);
-        submitCheckIn(imageName);
-      };
-      reader.readAsDataURL(imageFile);
-      return;
-    }
-    submitCheckIn(imageName);
-  };
-
-  const submitCheckIn = async (imageName) => {
-    const result = await window.api.checkIn({
-      barcode, category, subcategory, quantity, priceBuy, priceSell, discount, image: imageName
-    });
+    const result = await window.api.checkIn(data);
     if (result.success) {
-      setMessage('Item(s) checked in successfully!');
-      setBarcode(''); setCategory(''); setSubcategory(''); setQuantity(1); setPriceBuy(''); setPriceSell(''); setDiscount(''); setImageFile(null);
-      fileInputRef.current.value = '';
       fetchItems();
     } else {
-      setMessage(result.error || 'Check-in failed');
+      alert(result.error || 'Check-in failed');
     }
+  };
+
+  // Step 2: After barcode generation/printing
+  const handleBarcodesGenerated = (generatedBarcodes) => {
+    setBarcodes(generatedBarcodes);
+    setStep('scan');
+  };
+
+  // Step 3: After all barcodes are scanned and checked in
+  const handleScanComplete = () => {
+    setStep('list');
   };
 
   // Fetch all items for display
@@ -143,40 +117,20 @@ function InventoryPage({ user }) {
     <div className="inventory-page card">
       <h2>Inventory</h2>
       <div style={{marginBottom: '1.5rem', color: '#888'}}>Welcome, {user.name} ({user.role})</div>
-      {isAdmin && (
-        <form onSubmit={handleCheckIn} style={{display:'flex',flexDirection:'column',gap:'1rem',marginBottom:'2rem'}}>
-          <h3>Check In Item</h3>
-          <BarcodeInput onScan={handleBarcodeScan} />
-          <div style={{display: 'flex', gap: '1rem'}}>
-            <input type="text" placeholder="Barcode" value={barcode} onChange={e => setBarcode(e.target.value)} required />
-            <input type="number" placeholder="Quantity" value={quantity} min={1} onChange={e => setQuantity(e.target.value)} required style={{maxWidth: 120}} />
-          </div>
-          <div style={{display: 'flex', gap: '1rem'}}>
-            <select value={category} onChange={e => { setCategory(e.target.value); setSubcategory(''); }} required>
-              <option value="">Select Category</option>
-              {CATEGORY_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <select value={subcategory} onChange={e => setSubcategory(e.target.value)} required disabled={!category}>
-              <option value="">Select Subcategory</option>
-              {category && CATEGORY_OPTIONS.find(opt => opt.value === category)?.subcategories.map(sub => (
-                <option key={sub} value={sub}>{sub}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{display: 'flex', gap: '1rem'}}>
-            <input type="number" placeholder="Buying Price" value={priceBuy} onChange={e => setPriceBuy(e.target.value)} required />
-            <input type="number" placeholder="Selling Price" value={priceSell} onChange={e => setPriceSell(e.target.value)} required />
-            <input type="number" placeholder="Discount (optional)" value={discount} onChange={e => setDiscount(e.target.value)} />
-          </div>
-          <input type="file" accept="image/*" onChange={handleImageChange} ref={fileInputRef} />
-          {imageFile && <img src={URL.createObjectURL(imageFile)} alt="Preview" style={{width:80,marginTop:8,borderRadius:8}} />}
-          <button type="submit" disabled={loading}>{loading ? 'Checking In...' : 'Check In'}</button>
-        </form>
+      {isAdmin && step === 'checkin' && (
+        <InventoryCheckInPage onSubmit={handleCheckInSubmit} />
       )}
-      {message && <div className={message.includes('success') ? 'success' : 'error'}>{message}</div>}
-      <InventoryTable items={items} />
+      {step === 'barcode' && checkInData && (
+        // BarcodeGenerationPage will generate and display barcodes, allow printing
+        <div>Barcode Generation Page (To be created)</div>
+      )}
+      {step === 'scan' && barcodes.length > 0 && (
+        // BarcodeScanCheckInPage will prompt admin to scan each barcode for DB check-in
+        <div>Barcode Scan Check-In Page (To be created)</div>
+      )}
+      {step === 'list' && (
+        <InventoryTable items={items} />
+      )}
     </div>
   );
 }
