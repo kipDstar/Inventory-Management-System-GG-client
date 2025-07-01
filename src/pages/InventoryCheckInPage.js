@@ -84,6 +84,7 @@ export default function InventoryCheckInPage({ onSubmit }) {
           Product Image
           <input type="file" accept="image/*" onChange={handleImageChange} />
         </label>
+
         <button type="submit" className="animated-btn">Generate Barcodes</button>
       </form>
     </div>
