@@ -1,45 +1,47 @@
 import React, { useState } from 'react';
 import BarcodeInput from '../components/BarcodeInput';
 
-export default function BarcodeScanCheckInPage({ barcodes, checkInData, onComplete }) {
+export default function BarcodeScanCheckInPage({ barcodes, onComplete, saving = false }) {
   const [confirmed, setConfirmed] = useState([]);
-  const [current, setCurrent] = useState(0);
   const [error, setError] = useState('');
-  const [manual, setManual] = useState(false);
+  const [complete, setComplete] = useState(false);
 
-  const handleScan = (code) => {
-    if (code === barcodes[current]) {
-      setConfirmed([...confirmed, code]);
-      setError('');
-      if (current + 1 < barcodes.length) {
-        setCurrent(current + 1);
-      } else {
-        onComplete();
-      }
-    } else {
-      setError('Scanned or entered barcode does not match the expected item!');
+  const saveBatch = async () => {
+    setError('');
+    const result = await onComplete();
+    if (result) setComplete(true);
+  };
+
+  const handleScan = async code => {
+    if (confirmed.includes(code)) {
+      setError('This barcode was already scanned. Scan a different label.');
+      return;
     }
+    if (!barcodes.includes(code)) {
+      setError('Barcode is not part of this stock batch. Check the label and try again.');
+      return;
+    }
+    setError('');
+    const nextConfirmed = [...confirmed, code];
+    setConfirmed(nextConfirmed);
+    if (nextConfirmed.length === barcodes.length) await saveBatch();
   };
 
   return (
-    <div className="barcode-scan-card">
-      <h2>Scan or Enter Each Barcode to Check In</h2>
-      <p>
-        Scan barcode for item {current + 1} of {barcodes.length}:<br />
-        <button
-          type="button"
-          className="animated-btn"
-          style={{ marginTop: 8, marginBottom: 8 }}
-          onClick={() => setManual(m => !m)}
-        >
-          {manual ? 'Switch to Scanner Mode' : 'Enter Manually'}
-        </button>
-      </p>
-      <BarcodeInput onScan={handleScan} manual={manual} />
-      {error && <div style={{ color: 'red', marginTop: 8 }}>{error}</div>}
-      <div style={{ marginTop: 16 }}>
-        Confirmed: {confirmed.length} / {barcodes.length}
+    <section className="barcode-scan-card">
+      <h2>Verify stock barcodes</h2>
+      <p>Scan or type each label in any order. Each barcode must be confirmed once before the batch is saved.</p>
+      <BarcodeInput onScan={handleScan} disabled={saving || complete} />
+      <div className="progress-track" aria-label={`${confirmed.length} of ${barcodes.length} barcodes scanned`}>
+        <span style={{ width: `${barcodes.length ? (confirmed.length / barcodes.length) * 100 : 0}%` }} />
       </div>
-    </div>
+      <p className="muted">Confirmed: {confirmed.length} / {barcodes.length}</p>
+      {saving && <p role="status">Saving stock intake…</p>}
+      {error && <div className="error" role="alert">{error}</div>}
+      {confirmed.length === barcodes.length && !complete && !saving && (
+        <button type="button" onClick={saveBatch}>Retry saving this batch</button>
+      )}
+      {complete && <div className="success" role="status">All items were checked in successfully.</div>}
+    </section>
   );
 }

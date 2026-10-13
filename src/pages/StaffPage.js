@@ -1,76 +1,86 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
-function StaffPage({ user }) {
+function formatDate(value) {
+  if (!value || value === '—') return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+}
+
+function staffRows(result) {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.staff)) return result.staff;
+  if (Array.isArray(result?.rows)) return result.rows;
+  if (result?.success === false) throw new Error(result.error || 'Could not load staff.');
+  return [];
+}
+
+function StaffPage() {
   const [staff, setStaff] = useState([]);
   const [newStaff, setNewStaff] = useState({ name: '', password: '', shift: 'day' });
   const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const fetchStaff = async () => {
+  const fetchStaff = useCallback(async () => {
     setLoading(true);
-    const result = await window.api.getAllStaff();
-    setLoading(false);
-    if (result.success) setStaff(result.staff);
-    else setStaff([]);
-  };
+    setError('');
+    try {
+      setStaff(staffRows(await window.api.getAllStaff()));
+    } catch (fetchError) {
+      console.error('Staff load failed:', fetchError);
+      setError(fetchError.message || 'Could not load staff.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  useEffect(() => { fetchStaff(); }, []);
+  useEffect(() => { fetchStaff(); }, [fetchStaff]);
 
-  const handleAddStaff = async (e) => {
-    e.preventDefault();
+  const handleAddStaff = async event => {
+    event.preventDefault();
     setMessage('');
-    setLoading(true);
-    const result = await window.api.addStaff(newStaff);
-    setLoading(false);
-    if (result.success) {
-      setMessage('Staff user created!');
+    setError('');
+    setSaving(true);
+    try {
+      const result = await window.api.addStaff(newStaff);
+      if (!result?.success) throw new Error(result?.error || 'Failed to add staff.');
+      setMessage('Staff user created.');
       setNewStaff({ name: '', password: '', shift: 'day' });
-      fetchStaff();
-    } else {
-      setMessage(result.error || 'Failed to add staff');
+      await fetchStaff();
+    } catch (addError) {
+      console.error('Staff creation failed:', addError);
+      setError(addError.message || 'Failed to add staff.');
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div className="admin-dashboard card">
-      <h2>Staff Management</h2>
-      <form onSubmit={handleAddStaff} style={{marginBottom: '2rem'}}>
-        <h3>Add Sales Staff</h3>
-        <input type="text" placeholder="Username" value={newStaff.name} onChange={e => setNewStaff(s => ({...s, name: e.target.value}))} required />
-        <input type="password" placeholder="Password" value={newStaff.password} onChange={e => setNewStaff(s => ({...s, password: e.target.value}))} required />
-        <select value={newStaff.shift} onChange={e => setNewStaff(s => ({...s, shift: e.target.value}))}>
-          <option value="day">Day Shift</option>
-          <option value="night">Night Shift</option>
-        </select>
-        <button type="submit" disabled={loading}>{loading ? 'Adding...' : 'Add Staff'}</button>
+    <section className="staff-page card page-card">
+      <header className="page-heading"><div><p className="eyebrow">Team</p><h1>Staff management</h1><p className="muted">Current shift activity and performance.</p></div><button type="button" className="secondary-button" onClick={fetchStaff} disabled={loading}>Refresh</button></header>
+      {error && <div className="error" role="alert">{error}</div>}{message && <div className="success" role="status">{message}</div>}
+      <form className="staff-form panel" onSubmit={handleAddStaff}>
+        <h2>Add sales staff</h2>
+        <label>Username<input type="text" value={newStaff.name} onChange={event => setNewStaff(current => ({ ...current, name: event.target.value }))} required autoComplete="off" /></label>
+        <label>Password<input type="password" value={newStaff.password} onChange={event => setNewStaff(current => ({ ...current, password: event.target.value }))} required minLength={10} autoComplete="new-password" /></label>
+        <label>Default shift<select value={newStaff.shift} onChange={event => setNewStaff(current => ({ ...current, shift: event.target.value }))}><option value="day">Day shift</option><option value="night">Night shift</option></select></label>
+        <button type="submit" className="primary-button" disabled={saving}>{saving ? 'Adding…' : 'Add staff'}</button>
       </form>
-      {message && <div className={message.includes('created') ? 'success' : 'error'}>{message}</div>}
-      <h3>Current Sales Staff</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Shift</th>
-            <th>Performance</th>
-            <th>Special Issues</th>
-            <th>Check In</th>
-            <th>Check Out</th>
-          </tr>
-        </thead>
-        <tbody>
-          {staff.map(s => (
-            <tr key={s.id}>
-              <td>{s.name}</td>
-              <td>{s.shift}</td>
-              <td>{s.performance || '-'}</td>
-              <td>{s.issues || '-'}</td>
-              <td>{s.checkIn || '-'}</td>
-              <td>{s.checkOut || '-'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+      <section className="panel"><h2>Staff shift performance</h2>
+        {loading ? <p className="loading-state">Loading staff…</p> : <div className="table-scroll"><table>
+          <thead><tr><th>Name</th><th>Shift status</th><th>Check in</th><th>Check out</th><th>Shift revenue</th><th>Sales</th><th>Items sold</th></tr></thead>
+          <tbody>{staff.map((member, index) => <tr key={member.id ?? index}>
+            <td>{member.name}</td>
+            <td>{member.activeShiftId ? <span className="status-badge status-success">Active shift</span> : <span className="status-badge">Off shift</span>}</td>
+            <td>{formatDate(member.checkIn)}</td>
+            <td>{formatDate(member.checkOut)}</td>
+            <td>KES {Number(member.shiftRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>{member.shiftSalesCount ?? 0}</td><td>{member.itemsSold ?? 0}</td>
+          </tr>)}{!staff.length && <tr><td colSpan="7" className="empty-cell">No staff records.</td></tr>}</tbody>
+        </table></div>}
+      </section>
+    </section>
   );
 }
 

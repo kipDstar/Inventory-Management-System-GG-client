@@ -1,66 +1,60 @@
-// src/components/BarcodeInput.js
-// Barcode input field for USB barcode scanner
+import React, { useEffect, useRef, useState } from 'react';
 
-import React, { useRef, useEffect, useState } from 'react';
-
-function BarcodeInput({ onScan }) {
-  const inputRef = useRef();
-  const [manual, setManual] = useState(false);
+export default function BarcodeInput({ onScan, disabled = false, label = 'Scan or enter barcode', buttonLabel = 'Submit barcode' }) {
   const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const inputRef = useRef(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
-    if (inputRef.current) inputRef.current.focus();
-  }, [manual]);
+    if (!disabled) inputRef.current?.focus();
+  }, [disabled]);
 
-  const handleChange = (e) => {
-    setValue(e.target.value);
-  };
+  const submit = async (event) => {
+    event?.preventDefault();
+    const code = value.trim();
+    if (!code || disabled || submittingRef.current) return;
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      if (value.trim().length > 0) {
-        onScan(value.trim());
-        setValue('');
-      }
+    submittingRef.current = true;
+    setError('');
+    try {
+      await onScan(code);
+      setValue('');
+    } catch (submitError) {
+      console.error('Barcode submission failed:', submitError);
+      setError(submitError?.message || 'Could not submit this barcode. Try again.');
+    } finally {
+      submittingRef.current = false;
+      if (!disabled) inputRef.current?.focus();
     }
   };
 
-  const handleModeToggle = () => setManual((m) => !m);
-
   return (
-    <div style={{ marginBottom: '1rem' }}>
-      <label style={{ fontWeight: 500 }}>
-        {manual ? 'Enter barcode manually:' : 'Scan barcode:'}
-      </label>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+    <form className="barcode-entry" onSubmit={submit}>
+      <label htmlFor="barcode-entry-input">{label}</label>
+      <div className="barcode-entry-row">
         <input
+          id="barcode-entry-input"
           ref={inputRef}
           type="text"
-          placeholder={manual ? 'Type barcode and press Enter' : 'Scan barcode...'}
           value={value}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          style={{
-            width: 240,
-            padding: '0.5rem',
-            fontSize: '1rem',
-            borderRadius: 6,
-            border: '1px solid #bbb',
-            outline: 'none',
+          onChange={event => setValue(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              submit(event);
+            }
           }}
-          autoFocus
+          placeholder="Scan with a USB scanner or type the barcode"
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck="false"
+          disabled={disabled}
         />
-        <button
-          type="button"
-          className="animated-btn"
-          onClick={handleModeToggle}
-          style={{ minWidth: 120 }}
-        >
-          {manual ? 'Switch to Scanner Mode' : 'Enter Manually'}
-        </button>
+        <button type="submit" disabled={disabled || !value.trim()}>{buttonLabel}</button>
       </div>
-    </div>
+      <small>Scanner input and manual entry use the same field. Press Enter after scanning or typing.</small>
+      {error && <div className="error" role="alert">{error}</div>}
+    </form>
   );
 }
-
-export default BarcodeInput;

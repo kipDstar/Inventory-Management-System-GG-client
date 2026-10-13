@@ -30,6 +30,8 @@ import './index.css';
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import LoginPage from './pages/LoginPage';
+import InitialAdminSetupPage from './pages/InitialAdminSetupPage';
+import PasswordChangePage from './pages/PasswordChangePage';
 import InventoryPage from './pages/InventoryPage';
 import SalesPage from './pages/SalesPage';
 import ReportsPage from './pages/ReportsPage';
@@ -50,7 +52,8 @@ function ThemeToggle() {
   );
 }
 
-function Sidebar({ user, page, setPage }) {
+function Sidebar({ user, page, setPage, onLogout }) {
+  const isManager = ['admin', 'owner'].includes(user.role);
   return (
     <aside className="sidebar">
       <h2>GG Liquor POS</h2>
@@ -59,12 +62,12 @@ function Sidebar({ user, page, setPage }) {
         <button className={page === 'inventory' ? 'active' : ''} onClick={() => setPage('inventory')}>Inventory</button>
         <button className={page === 'sales' ? 'active' : ''} onClick={() => setPage('sales')}>Sales</button>
         <button className={page === 'shift' ? 'active' : ''} onClick={() => setPage('shift')}>Shift</button>
-        {user.role === 'admin' && <>
+        {isManager && <>
           <button className={page === 'reports' ? 'active' : ''} onClick={() => setPage('reports')}>Reports</button>
           <button className={page === 'dashboard' ? 'active' : ''} onClick={() => setPage('dashboard')}>Dashboard</button>
           <button className={page === 'staff' ? 'active' : ''} onClick={() => setPage('staff')}>Staff</button>
         </>}
-        <button onClick={() => window.location.reload()}>Logout</button>
+        <button onClick={onLogout}>Logout</button>
       </nav>
     </aside>
   );
@@ -74,73 +77,124 @@ const App = () => {
   const [user, setUser] = useState(null);
   const [error, setError] = useState('');
   const [page, setPage] = useState('inventory');
-  const [items, setItems] = useState([]);
+  const [setupState, setSetupState] = useState(() => window.api ? 'checking' : 'browser');
+  const [setupError, setSetupError] = useState('');
+  const [setupLoading, setSetupLoading] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
 
-  const handleLogin = async (username, password) => {
-    setError('');
+  const handleLogout = async () => {
+    setLogoutError('');
     try {
-      const result = await window.api.login(username, password);
-      if (result.success) {
-        setUser(result.user);
-        setPage(result.user.role === 'admin' ? 'dashboard' : 'inventory');
-      } else {
-        setError(result.error || 'Login failed');
-      }
-    } catch (e) {
-      setError('Login error');
+      if (typeof window.api?.logout !== 'function') throw new Error('Sign out is unavailable in this desktop build.');
+      const result = await window.api.logout();
+      if (!result?.success) throw new Error(result?.error || 'Could not sign out.');
+      setUser(null);
+      setPage('inventory');
+    } catch (logoutFailure) {
+      console.error('Logout failed:', logoutFailure);
+      setLogoutError(logoutFailure.message || 'Could not sign out.');
     }
   };
 
   React.useEffect(() => {
-    const fetchData = async () => {
-      if (user) {
-        try {
-          const result = await window.api.getInventory();
-          if (result.success) {
-            setItems(Array.isArray(result.items) ? result.items : []);
-          } else {
-            setItems([]);
-          }
-        } catch (error) {
-          console.error('Error fetching data:', error);
-          setItems([]);
+    let mounted = true;
+    const checkSetup = async () => {
+      if (!window.api) {
+        setSetupState('browser');
+        return;
+      }
+      try {
+        if (typeof window.api.getSetupStatus !== 'function') throw new Error('This desktop app needs an update to check first-time setup.');
+        const result = await window.api.getSetupStatus();
+        if (!result?.success) throw new Error(result?.error || 'Could not check first-time setup.');
+        if (mounted) setSetupState(result.needsSetup ? 'required' : 'ready');
+      } catch (checkError) {
+        console.error('Initial setup status check failed:', checkError);
+        if (mounted) {
+          setSetupError(checkError.message || 'Could not check first-time setup.');
+          setSetupState('error');
         }
       }
     };
+    checkSetup();
+    return () => { mounted = false; };
+  }, []);
 
-    fetchData();
-  }, [user]);
-
-  const handleCheckIn = async (item) => {
-    console.log('Sending to check-in:', item);
+  const handleCreateInitialAdmin = async ({ name, password }) => {
+    setSetupError('');
+    setSetupLoading(true);
     try {
-      const result = await window.api.checkIn(item); // Use checkIn, not invoke
-      console.log('Check-in result:', result);
-      if (result.success) {
-        // Optionally, fetch all items again to refresh the list
-        const updated = await window.api.getInventory();
-        setItems(Array.isArray(updated.items) ? updated.items : []);
-      } else {
-        console.error('Check-in failed:', result.error);
+      if (typeof window.api?.createInitialAdmin !== 'function') throw new Error('Administrator setup is unavailable in this desktop build.');
+      const result = await window.api.createInitialAdmin({ name, password });
+      if (!result?.success || !result.user) throw new Error(result?.error || 'Administrator could not be created.');
+      setUser(result.user);
+      setPage(['admin', 'owner'].includes(result.user.role) ? 'dashboard' : 'inventory');
+      setSetupState('ready');
+    } catch (createError) {
+      console.error('Initial administrator setup failed:', createError);
+      setSetupError(createError.message || 'Administrator setup failed.');
+      try {
+        const status = await window.api.getSetupStatus();
+        if (status?.success && !status.needsSetup) setSetupState('ready');
+      } catch (statusError) {
+        console.error('Setup status recheck failed:', statusError);
       }
-    } catch (error) {
-      console.error('Error during check-in:', error);
+    } finally {
+      setSetupLoading(false);
     }
   };
 
+  const handleLogin = async (username, password) => {
+    setError('');
+    if (!window.api?.login) {
+      setError('Login is only available in the desktop app. Start it with npm start.');
+      return;
+    }
+
+    try {
+      const result = await window.api.login(username, password);
+      if (result.success) {
+        setUser(result.user);
+        setPage(['admin', 'owner'].includes(result.user.role) ? 'dashboard' : 'inventory');
+      } else {
+        setError(result.error || 'Login failed');
+      }
+    } catch (e) {
+      console.error('Login request failed:', e);
+      setError('Login error');
+    }
+  };
+
+  if (setupState === 'checking') {
+    return <main className="main-content setup-state-content"><section className="card narrow-card"><p className="eyebrow">Application startup</p><h1>Checking setup…</h1><p className="muted">Verifying whether this desktop installation needs its first administrator.</p></section></main>;
+  }
+
+  if (setupState === 'error') {
+    return <main className="main-content setup-state-content"><section className="card narrow-card"><p className="eyebrow">Application startup</p><h1>Could not check setup</h1><div className="error" role="alert">{setupError}</div><button className="secondary-button" type="button" onClick={() => window.location.reload()}>Retry</button></section></main>;
+  }
+
+  if (setupState === 'required') {
+    return <main className="main-content setup-state-content"><InitialAdminSetupPage onCreateAdmin={handleCreateInitialAdmin} error={setupError} loading={setupLoading} /></main>;
+  }
+
   if (!user) {
-    return <div className="main-content"><LoginPage onLogin={handleLogin} error={error} /></div>;
+    return <div className="main-content"><LoginPage onLogin={handleLogin} error={error} />{setupState === 'browser' && <div className="browser-preview-notice" role="note"><strong>Browser preview only</strong><span>Authentication and inventory APIs are available only in the Electron desktop app. No browser session is authenticated.</span></div>}</div>;
+  }
+
+  if (user.mustChangePassword) {
+    return <PasswordChangePage user={user} onComplete={() => setUser(current => ({ ...current, mustChangePassword: false }))} />;
   }
 
   return (
     <div className="app-container">
-      <Sidebar user={user} page={page} setPage={setPage} />
+      <Sidebar user={user} page={page} setPage={setPage} onLogout={handleLogout} />
       <main className="main-content">
-        {page === 'inventory' && <InventoryPage user={user} items={items} onCheckIn={handleCheckIn} />}
+        {logoutError && <div className="error" role="alert">{logoutError}</div>}
+        {page === 'inventory' && <InventoryPage user={user} />}
         {page === 'sales' && <SalesPage user={user} />}
-        {page === 'reports' && user.role === 'admin' && <ReportsPage user={user} />}
-        {page === 'dashboard' && user.role === 'admin' && <AdminDashboard user={user} />}
-        {page === 'staff' && user.role === 'admin' && <StaffPage user={user} />}
+        {page === 'reports' && ['admin', 'owner'].includes(user.role) && <ReportsPage user={user} />}
+        {page === 'dashboard' && ['admin', 'owner'].includes(user.role) && <AdminDashboard user={user} />}
+        {page === 'staff' && ['admin', 'owner'].includes(user.role) && <StaffPage user={user} />}
         {page === 'shift' && <ShiftPage user={user} />}
       </main>
     </div>
